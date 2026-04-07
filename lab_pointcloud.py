@@ -103,7 +103,7 @@ def plot(img_f32, mask, out_path):
 
     # panel 3 — overlay: bg then fg on top
     ax3 = fig.add_subplot(gs[2])
-    ax3.scatter(a[bg_idx], b[bg_idx], c="#e6850e", s=2, alpha=0.22,
+    ax3.scatter(a[bg_idx], b[bg_idx], c="#e6850e", s=4, alpha=0.20,
                 linewidths=0, rasterized=True, label=f"Background ($n={bg_idx.sum():,}$)")
     ax3.scatter(a[fg_idx], b[fg_idx], c="#31a354", s=4, alpha=0.20,
                 linewidths=0, rasterized=True, label=f"Foreground ($n={fg_idx.sum():,}$)")
