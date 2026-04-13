@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Color Segmentation Analyzer</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0c0c0e;--surface:#141416;--raised:#1c1c20;--border:#27272c;
+  --fg-col:#4ade80;--un-col:#fbbf24;--text:#d4d4d8;--dim:#52525b;--hint:#3f3f46;
+  --accent:#60a5fa;--red:#f87171;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--sans);font-weight:300;overflow:hidden}
+
+/* ── phase management ── */
+.phase{display:none;position:absolute;inset:0}
+.phase.active{display:flex}
+
+/* ── shared components ── */
+.tag{font-family:var(--mono);font-size:10px;color:var(--dim);background:var(--raised);border:1px solid var(--border);padding:2px 7px;border-radius:3px}
+.abtn{padding:9px 12px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--text);font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;transition:all .15s;letter-spacing:.04em}
+.abtn.wide{width:100%;display:block;margin-bottom:7px}.abtn.wide:last-child{margin-bottom:0}
+.abtn.primary{background:var(--fg-col);border-color:var(--fg-col);color:#071a0e}.abtn.primary:hover{filter:brightness(1.08)}
+.abtn.blue{background:var(--accent);border-color:var(--accent);color:#040d1a}.abtn.blue:hover{filter:brightness(1.08)}
+.abtn:not(.primary):not(.blue):hover{border-color:var(--dim)}
+.abtn:disabled{opacity:.3;cursor:not-allowed}
+.sec{padding:14px 16px;border-bottom:1px solid var(--border)}
+.sec h2{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--hint);margin-bottom:10px}
+.srow{display:flex;justify-content:space-between;margin-bottom:7px}.srow:last-child{margin-bottom:0}
+.slabel{font-size:12px;color:var(--dim);display:flex;align-items:center;gap:6px}
+.dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.dot.fg{background:var(--fg-col)}.dot.un{background:var(--un-col)}
+.sval{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--text)}
+kbd{font-family:var(--mono);font-size:10px;background:var(--raised);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--text)}
+.hint{font-size:11px;color:var(--hint);line-height:1.9}
+.err{font-family:var(--mono);font-size:11px;color:var(--red);padding:8px 12px;background:#1a0c0c;border:1px solid #3d1515;border-radius:5px;display:none}
+.spinner{width:28px;height:28px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:none}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ══ PHASE 1: UPLOAD ══ */
+#ph-upload{flex-direction:column;align-items:center;justify-content:center;gap:20px}
+.upload-title{font-family:var(--mono);font-size:11px;letter-spacing:.1em;color:var(--dim);text-transform:uppercase}
+.drop-zone{width:420px;border:1.5px dashed var(--border);border-radius:12px;padding:44px 32px;display:flex;flex-direction:column;align-items:center;gap:14px;background:var(--surface);cursor:pointer;transition:border-color .2s,background .2s}
+.drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:#13141e}
+.drop-zone .icon{font-size:38px;opacity:.35}
+.drop-zone p{font-size:13px;color:var(--dim);text-align:center;line-height:1.7}
+.drop-zone strong{color:var(--text)}
+.drop-btn{font-family:var(--mono);font-size:11px;padding:7px 16px;background:var(--raised);border:1px solid var(--border);border-radius:5px;color:var(--text);cursor:pointer;transition:border-color .15s}.drop-btn:hover{border-color:var(--dim)}
+#file-in{display:none}
+#upload-status{font-family:var(--mono);font-size:11px;color:var(--dim)}
+
+/* ══ PHASE 2: SEGMENT ══ */
+#ph-segment{flex-direction:row}
+#seg-wrap{flex:1;position:relative;overflow:hidden;background:#080809;display:flex;align-items:center;justify-content:center}
+#seg-canvas{display:block;image-rendering:pixelated;cursor:crosshair;touch-action:none}
+#seg-aside{width:268px;flex-shrink:0;border-left:1px solid var(--border);background:var(--surface);display:flex;flex-direction:column;overflow:hidden}
+#seg-header{padding:10px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;background:var(--surface)}
+
+/* ══ PHASE 3: RESULTS ══ */
+#ph-results{flex-direction:column;overflow:hidden}
+#res-header{padding:12px 20px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:10px;flex-shrink:0}
+#res-header h1{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.08em}
+#res-header .actions{margin-left:auto;display:flex;gap:8px}
+#res-header .abtn{padding:6px 14px}
+#res-body{flex:1;overflow-y:auto;padding:20px 24px;display:flex;flex-direction:column;gap:20px}
+.metrics-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:10px}
+.metric-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 14px}
+.metric-card .ml{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);margin-bottom:5px}
+.metric-card .mv{font-family:var(--mono);font-size:19px;font-weight:600;color:var(--text)}
+.metric-card .mu{font-size:10px;color:var(--dim);margin-left:3px}
+.chart-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.chart-card .ct{padding:9px 14px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--dim);border-bottom:1px solid var(--border)}
+.chart-card img{width:100%;display:block}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════════════
+     PHASE 1 — UPLOAD
+══════════════════════════════════════════════════════ -->
+<div class="phase active" id="ph-upload">
+  <p class="upload-title">Color Segmentation Analyzer</p>
+
+  <div class="drop-zone" id="drop-zone">
+    <div class="icon">🖼</div>
+    <p><strong>Drop an image here</strong><br>JPG · PNG · WebP · any size</p>
+    <button class="drop-btn" onclick="document.getElementById('file-in').click()">Browse…</button>
+    <input type="file" id="file-in" accept="image/*">
+  </div>
+
+  <div class="spinner" id="upload-spinner"></div>
+  <p id="upload-status"></p>
+  <p class="err" id="upload-err"></p>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════
+     PHASE 2 — SEGMENTATION
+══════════════════════════════════════════════════════ -->
+<div class="phase" id="ph-segment">
+
+  <div id="seg-wrap">
+    <canvas id="seg-canvas"></canvas>
+  </div>
+
+  <aside id="seg-aside">
+    <div id="seg-header">
+      <span style="font-family:var(--mono);font-size:11px;font-weight:600">SEGMENTATION</span>
+      <span class="tag" id="seg-info">—</span>
+    </div>
+
+    <div class="sec">
+      <h2>Brush</h2>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="dot fg"></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--fg-col);font-weight:600">LEFT CLICK</span>
+          <span style="font-size:11px;color:var(--dim)">foreground</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="dot un"></span>
+          <span style="font-family:var(--mono);font-size:11px;color:var(--un-col);font-weight:600">RIGHT CLICK</span>
+          <span style="font-size:11px;color:var(--dim)">uncertain</span>
+        </div>
+      </div>
+      <p style="font-size:10px;color:var(--hint);margin-top:9px;font-family:var(--mono)">Unlabeled regions = background</p>
+    </div>
+
+    <div class="sec">
+      <h2>Labels</h2>
+      <div class="srow"><span class="slabel"><span class="dot fg"></span>Foreground</span><span class="sval" id="cnt-fg">0</span></div>
+      <div class="srow"><span class="slabel"><span class="dot un"></span>Uncertain</span><span class="sval" id="cnt-un">0</span></div>
+      <div class="srow"><span class="slabel" style="color:var(--hint)">Background</span><span class="sval" id="cnt-bg" style="color:var(--hint)">—</span></div>
+    </div>
+
+    <div class="sec">
+      <h2>Actions</h2>
+      <button class="abtn wide primary" id="btn-analyze" onclick="doAnalyze()" disabled>Analyze →</button>
+      <button class="abtn wide" onclick="resetLabels()">Reset labels</button>
+      <button class="abtn wide" onclick="showPhase('upload')">← New image</button>
+      <p class="err" id="seg-err" style="margin-top:9px"></p>
+      <div style="display:flex;justify-content:center;margin-top:10px">
+        <div class="spinner" id="analyze-spinner"></div>
+      </div>
+    </div>
+
+    <div class="sec" style="flex:1">
+      <h2>Controls</h2>
+      <p class="hint">
+        <kbd>Left drag</kbd> paint foreground<br>
+        <kbd>Right drag</kbd> mark uncertain<br>
+        <kbd>Same SP</kbd> click again to deselect<br>
+        <kbd>Scroll</kbd> zoom<br>
+        <kbd>Space+drag</kbd> pan
+      </p>
+    </div>
+  </aside>
+</div>
+
+
+<!-- ══════════════════════════════════════════════════════
+     PHASE 3 — RESULTS
+══════════════════════════════════════════════════════ -->
+<div class="phase" id="ph-results">
+  <div id="res-header">
+    <h1>ANALYSIS RESULTS</h1>
+    <span class="tag" id="res-tag">—</span>
+    <div class="actions">
+      <button class="abtn blue" onclick="downloadCSV()">Download CSV</button>
+      <button class="abtn" onclick="showPhase('segment')">← Edit Labels</button>
+      <button class="abtn" onclick="showPhase('upload')">New Image</button>
+    </div>
+  </div>
+
+  <div id="res-body">
+    <div class="metrics-grid" id="metrics-grid"></div>
+    <div id="charts-col" style="display:flex;flex-direction:column;gap:16px"></div>
+  </div>
+</div>
+
+
+<script>
+// ── state ─────────────────────────────────────────────────────────────────
+let SESSION_ID = null, W = 0, H = 0;
+let spLookup    = null;   // Uint16Array flat [H*W] → sp_id
+let spPixelMap  = null;   // Map<id, {ys: Int32Array, xs: Int32Array, _len: int}>
+let labelsMap   = {};     // {spId: 'fg'|'un'}
+let baseCanvas  = null;
+let overlayData = null;
+let scale = 1, offX = 0, offY = 0;
+let painting = false, panning = false, panOrigin = null, lastPainted = -1;
+let _csvData = '';
+
+const canvas = document.getElementById('seg-canvas');
+const ctx    = canvas.getContext('2d');
+const wrap   = document.getElementById('seg-wrap');
+
+// ── phase management ──────────────────────────────────────────────────────
+function showPhase(name) {
+  document.querySelectorAll('.phase').forEach(el => el.classList.remove('active'));
+  document.getElementById('ph-' + name).classList.add('active');
+}
+
+// ── upload & SLIC ─────────────────────────────────────────────────────────
+const dropZone     = document.getElementById('drop-zone');
+const fileIn       = document.getElementById('file-in');
+const uploadSpinner = document.getElementById('upload-spinner');
+const uploadStatus = document.getElementById('upload-status');
+const uploadErr    = document.getElementById('upload-err');
+
+fileIn.addEventListener('change', e => {
+  if (e.target.files[0]) uploadFile(e.target.files[0]);
+  e.target.value = '';
+});
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('dragover'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault(); dropZone.classList.remove('dragover');
+  if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+});
+
+async function uploadFile(file) {
+  uploadErr.style.display = 'none';
+  uploadSpinner.style.display = 'block';
+  uploadStatus.textContent = 'Running SLIC segmentation…';
+
+  const fd = new FormData();
+  fd.append('image', file);
+
+  try {
+    const res  = await fetch('/api/slic', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Server error');
+    await initSegment(data);
+  } catch (err) {
+    uploadErr.textContent = err.message;
+    uploadErr.style.display = 'block';
+  } finally {
+    uploadSpinner.style.display = 'none';
+    uploadStatus.textContent = '';
+  }
+}
+
+// ── build segmentation UI from SLIC response ──────────────────────────────
+async function initSegment(data) {
+  SESSION_ID = data.session_id;
+  W = data.width; H = data.height;
+
+  canvas.width = W; canvas.height = H;
+  labelsMap = {}; overlayData = null;
+
+  // Load image into an <img> element
+  uploadStatus.textContent = 'Loading image…';
+  const img = new Image();
+  img.src = data.image_b64;
+  await new Promise(r => { img.onload = r; });
+
+  // Decode SLIC labels: little-endian Uint16, flat [H*W]
+  uploadStatus.textContent = 'Building superpixel map…';
+  await tick();
+  const rawStr = atob(data.slic_labels_b64);
+  const bytes  = new Uint8Array(rawStr.length);
+  for (let i = 0; i < rawStr.length; i++) bytes[i] = rawStr.charCodeAt(i);
+  spLookup = new Uint16Array(bytes.buffer);
+
+  // Count pixels per superpixel, then fill ys/xs arrays
+  const counts = new Map();
+  for (let i = 0; i < spLookup.length; i++) {
+    const id = spLookup[i];
+    counts.set(id, (counts.get(id) || 0) + 1);
+  }
+  spPixelMap = new Map();
+  for (const [id, cnt] of counts)
+    spPixelMap.set(id, { ys: new Int32Array(cnt), xs: new Int32Array(cnt), _len: 0 });
+  for (let i = 0; i < spLookup.length; i++) {
+    const id = spLookup[i];
+    const y  = (i / W) | 0, x = i % W;
+    const sp = spPixelMap.get(id);
+    sp.ys[sp._len] = y; sp.xs[sp._len] = x; sp._len++;
+  }
+
+  // Draw base canvas: image + orange boundary overlay
+  uploadStatus.textContent = 'Drawing boundaries…';
+  await tick();
+  baseCanvas = document.createElement('canvas');
+  baseCanvas.width = W; baseCanvas.height = H;
+  const bctx  = baseCanvas.getContext('2d');
+  bctx.drawImage(img, 0, 0);
+  const idata = bctx.getImageData(0, 0, W, H);
+  const d     = idata.data;
+  for (let y = 0; y < H - 1; y++) {
+    for (let x = 0; x < W - 1; x++) {
+      const id = spLookup[y*W + x];
+      if (id !== spLookup[y*W + x + 1] || id !== spLookup[(y+1)*W + x]) {
+        const i = (y*W + x) * 4;
+        d[i] = 255; d[i+1] = 140; d[i+2] = 0; d[i+3] = 180;
+      }
+    }
+  }
+  bctx.putImageData(idata, 0, 0);
+
+  document.getElementById('seg-info').textContent =
+    `${data.n_segments} SP · ${W}×${H}`;
+  showPhase('segment');
+  await tick(); // wait for layout so wrap has non-zero clientWidth/clientHeight
+  fitView(); updateCounts(); render();
+}
+
+function tick() { return new Promise(r => setTimeout(r, 16)); }
+
+// ── viewport ──────────────────────────────────────────────────────────────
+function fitView() {
+  const cw = wrap.clientWidth, ch = wrap.clientHeight;
+  scale = Math.min(cw / W, ch / H) * 0.94;
+  offX = (cw - W * scale) / 2;
+  offY = (ch - H * scale) / 2;
+  applyTransform();
+}
+function applyTransform() {
+  canvas.style.width      = W * scale + 'px';
+  canvas.style.height     = H * scale + 'px';
+  canvas.style.marginLeft = offX + 'px';
+  canvas.style.marginTop  = offY + 'px';
+}
+
+// ── render ────────────────────────────────────────────────────────────────
+function render() {
+  if (!baseCanvas) return;
+  ctx.clearRect(0, 0, W, H);
+  ctx.drawImage(baseCanvas, 0, 0);
+  if (overlayData) {
+    const tmp = document.createElement('canvas');
+    tmp.width = W; tmp.height = H;
+    tmp.getContext('2d').putImageData(overlayData, 0, 0);
+    ctx.drawImage(tmp, 0, 0);
+  }
+}
+
+function ensureOverlay() {
+  if (!overlayData) overlayData = new ImageData(W, H);
+}
+function paintSPOverlay(spId, r, g, b, a) {
+  ensureOverlay();
+  const d  = overlayData.data;
+  const sp = spPixelMap.get(spId);
+  for (let i = 0; i < sp._len; i++) {
+    const idx = (sp.ys[i] * W + sp.xs[i]) * 4;
+    d[idx] = r; d[idx+1] = g; d[idx+2] = b; d[idx+3] = a;
+  }
+}
+function colorForLabel(lbl) {
+  if (lbl === 'fg') return [74, 222, 128, 128];   // green  50% alpha
+  if (lbl === 'un') return [251, 191,  36, 128];   // yellow 50% alpha
+  return [0, 0, 0, 0];
+}
+
+// ── interaction ───────────────────────────────────────────────────────────
+function canvasXY(e) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: Math.floor((e.clientX - r.left) * W / r.width),
+    y: Math.floor((e.clientY - r.top)  * H / r.height),
+  };
+}
+function spAt(e) {
+  const { x, y } = canvasXY(e);
+  if (x < 0 || y < 0 || x >= W || y >= H) return -1;
+  return spLookup[y * W + x];
+}
+function paintSP(spId, lbl) {
+  if (spId < 0) return;
+  const next = labelsMap[spId] === lbl ? null : lbl;  // toggle off if same
+  if (next === null) delete labelsMap[spId]; else labelsMap[spId] = next;
+  const [r, g, b, a] = colorForLabel(next);
+  paintSPOverlay(spId, r, g, b, a);
+  render(); updateCounts();
+}
+
+canvas.addEventListener('mousedown', e => {
+  e.preventDefault();
+  if (!spLookup) return;
+  if (e.button === 1 || (e.button === 0 && e.getModifierState('Space'))) {
+    panning = true;
+    panOrigin = { mx: e.clientX, my: e.clientY, ox: offX, oy: offY };
+    return;
+  }
+  painting = true; lastPainted = -1;
+  const lbl = e.button === 2 ? 'un' : 'fg';
+  const id  = spAt(e);
+  if (id >= 0) { paintSP(id, lbl); lastPainted = id; }
+});
+canvas.addEventListener('mousemove', e => {
+  if (panning && panOrigin) {
+    offX = panOrigin.ox + (e.clientX - panOrigin.mx);
+    offY = panOrigin.oy + (e.clientY - panOrigin.my);
+    applyTransform(); return;
+  }
+  if (!painting) return;
+  const id = spAt(e);
+  if (id < 0 || id === lastPainted) return;
+  const lbl = (e.buttons & 2) ? 'un' : 'fg';
+  if (labelsMap[id] !== lbl) {
+    labelsMap[id] = lbl;
+    const [r, g, b, a] = colorForLabel(lbl);
+    paintSPOverlay(id, r, g, b, a);
+    render(); updateCounts();
+  }
+  lastPainted = id;
+});
+window.addEventListener('mouseup', () => { painting = false; panning = false; panOrigin = null; });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  const cx = (e.clientX - offX) / scale, cy = (e.clientY - offY) / scale;
+  scale = Math.max(0.15, Math.min(30, scale * factor));
+  offX = e.clientX - cx * scale; offY = e.clientY - cy * scale;
+  applyTransform();
+}, { passive: false });
+
+// ── label counts + analyze button state ───────────────────────────────────
+function updateCounts() {
+  let fg = 0, un = 0;
+  for (const v of Object.values(labelsMap)) {
+    if (v === 'fg') fg++; else if (v === 'un') un++;
+  }
+  document.getElementById('cnt-fg').textContent = fg;
+  document.getElementById('cnt-un').textContent = un;
+  const total = spPixelMap ? spPixelMap.size : 0;
+  document.getElementById('cnt-bg').textContent = Math.max(0, total - fg - un);
+  document.getElementById('btn-analyze').disabled = fg === 0;
+}
+
+function resetLabels() {
+  labelsMap = {}; overlayData = null;
+  render(); updateCounts();
+}
+
+// ── mask encoding (chunked to avoid stack overflow on large images) ────────
+function u8ToBase64(arr) {
+  const CHUNK = 8192;
+  let s = '';
+  for (let i = 0; i < arr.length; i += CHUNK)
+    s += String.fromCharCode.apply(null, arr.subarray(i, i + CHUNK));
+  return btoa(s);
+}
+
+// ── analyze ───────────────────────────────────────────────────────────────
+async function doAnalyze() {
+  const errEl = document.getElementById('seg-err');
+  errEl.style.display = 'none';
+  document.getElementById('analyze-spinner').style.display = 'block';
+  document.getElementById('btn-analyze').disabled = true;
+
+  try {
+    // Build flat pixel mask: 0=bg, 1=fg, 2=uncertain
+    const mask = new Uint8Array(W * H);
+    for (const [spId, lbl] of Object.entries(labelsMap)) {
+      const sp = spPixelMap.get(parseInt(spId));
+      const v  = lbl === 'fg' ? 1 : lbl === 'un' ? 2 : 0;
+      if (!sp || v === 0) continue;
+      for (let i = 0; i < sp._len; i++) mask[sp.ys[i] * W + sp.xs[i]] = v;
+    }
+
+    const res = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id:     SESSION_ID,
+        pixel_mask_b64: u8ToBase64(mask),
+        width: W, height: H,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Analysis failed');
+    renderResults(data);
+  } catch (err) {
+    errEl.textContent = err.message;
+    errEl.style.display = 'block';
+    document.getElementById('btn-analyze').disabled = false;
+  } finally {
+    document.getElementById('analyze-spinner').style.display = 'none';
+  }
+}
+
+// ── render results ────────────────────────────────────────────────────────
+function renderResults(data) {
+  _csvData = data.csv;
+  const m  = data.metrics;
+
+  // Metric cards
+  const grid = document.getElementById('metrics-grid');
+  const cards = [
+    { label: 'Centroid Dist.',    val: m.centroid_distance.toFixed(3),           unit: 'ΔE (a*b*)' },
+    { label: 'Bhattacharyya',     val: m.bhattacharyya.toFixed(3),               unit: 'a*b*'       },
+    { label: 'FG Brightness',     val: (m.mean_fg_brightness * 100).toFixed(1),  unit: '% luma'     },
+    { label: 'BG Brightness',     val: (m.mean_bg_brightness * 100).toFixed(1),  unit: '% luma'     },
+    { label: 'Brightness FG−BG',  val: (m.brightness_diff >= 0 ? '+' : '') +
+                                       (m.brightness_diff * 100).toFixed(1),     unit: '% luma'     },
+    { label: 'FG Pixels',         val: m.fg_pixels.toLocaleString(),             unit: 'px'         },
+    { label: 'BG Pixels',         val: m.bg_pixels.toLocaleString(),             unit: 'px'         },
+    { label: 'Mean a* (FG/BG)',   val: `${m.mean_fg_a.toFixed(1)} / ${m.mean_bg_a.toFixed(1)}`, unit: '' },
+    { label: 'Mean b* (FG/BG)',   val: `${m.mean_fg_b.toFixed(1)} / ${m.mean_bg_b.toFixed(1)}`, unit: '' },
+  ];
+  grid.innerHTML = cards.map(c => `
+    <div class="metric-card">
+      <div class="ml">${c.label}</div>
+      <div class="mv">${c.val}<span class="mu">${c.unit}</span></div>
+    </div>`).join('');
+
+  document.getElementById('res-tag').textContent =
+    `${m.fg_pixels.toLocaleString()} FG · ${m.bg_pixels.toLocaleString()} BG px`;
+
+  // Chart images
+  const col = document.getElementById('charts-col');
+  col.innerHTML = data.charts.map((src, i) => `
+    <div class="chart-card">
+      <div class="ct">${data.chart_titles[i]}</div>
+      <img src="${src}" alt="${data.chart_titles[i]}">
+    </div>`).join('');
+
+  showPhase('results');
+  document.getElementById('btn-analyze').disabled = false;
+}
+
+function downloadCSV() {
+  const blob = new Blob([_csvData], { type: 'text/csv' });
+  const a    = document.createElement('a');
+  a.href     = URL.createObjectURL(blob);
+  a.download = 'color_analysis.csv';
+  a.click();
+}
+</script>
+</body>
+</html>
